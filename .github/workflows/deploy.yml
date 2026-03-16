@@ -19,4 +19,4 @@ jobs:
             cd /opt/gitea
             git pull
             docker compose pull
-            sudo systemctl restart gitea-stack.service
+            sudo systemctl restart gitea-stack
