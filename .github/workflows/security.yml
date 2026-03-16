@@ -25,7 +25,6 @@ jobs:
       github.event_name == 'schedule' ||
       github.event.inputs.security == 'secret_scan' ||
       github.event.inputs.security == 'full_scan'
-    needs: image_scan
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +36,6 @@ jobs:
 
   syntax:
     runs-on: ubuntu-latest
-    needs: secret_scan
     if: >
       github.event_name == 'pull_request' ||
       github.event_name == 'schedule' ||
@@ -45,8 +43,8 @@ jobs:
       github.event.inputs.security == 'full_scan'
     steps:
       - uses: actions/checkout@v4
-      - name: check docker-compose syntax
-        run: docker-compose config --quiet
+      - name: check docker compose syntax
+        run: docker compose config --quiet
 
   image_scan:
     runs-on: ubuntu-latest
