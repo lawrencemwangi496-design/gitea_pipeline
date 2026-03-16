@@ -1,0 +1,103 @@
+---
+name: securty check
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+    inputs:
+      security:
+        description: "run security check"
+        required: true
+        default: full_scan
+        type: choice
+        options:
+          - full_scan
+          - syntax
+          - secret_scan
+          - image_scan
+jobs:
+  secret_scan:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      github.event.inputs.security == 'secret_scan' ||
+      github.event.inputs.security == 'full_scan'
+    needs: image_scan
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: "0"
+      - name: scan for secret
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+  syntax:
+    runs-on: ubuntu-latest
+    needs: secret_scan
+    if: >
+      github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      github.event.inputs.security == 'syntax' ||
+      github.event.inputs.security == 'full_scan'
+    steps:
+      - uses: actions/checkout@v4
+      - name: check docker-compose syntax
+        run: docker-compose config --quiet
+
+  image_scan:
+    runs-on: ubuntu-latest
+    needs: syntax
+    if: >
+      github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      github.event.inputs.security == 'image_scan' ||
+      github.event.inputs.security == 'full_scan'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+          https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Install Trivy
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+      - name: Cache Trivy vulnerability database
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ github.run_id }}
+          restore-keys: trivy-db-
+      - name: Extract images from Compose file
+        id: images
+        run: |
+           IMAGES=$(yq '.services[].image' docker-compose.yml \
+           | grep -v 'null' \
+           | sort \
+           | uniq)
+           echo "images<<EOF" >> $GITHUB_OUTPUT
+           echo "$IMAGES" >> $GITHUB_OUTPUT
+           echo "EOF" >> $GITHUB_OUTPUT
+      - name: Scan each image with Trivy
+        run: |
+          FAILED=0
+          while IFS= read -r img; do
+          [ -z "$img" ] && continue
+          echo "Scanning: $img"
+          trivy image \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          --cache-dir ~/.cache/trivy \
+          "$img" || FAILED=1
+          done <<< "${{ steps.images.outputs.images }}"
+          exit $FAILED
