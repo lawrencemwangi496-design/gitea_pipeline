@@ -98,4 +98,4 @@ jobs:
           --cache-dir ~/.cache/trivy \
           "$img" || FAILED=1
           done <<< "${{ steps.images.outputs.images }}"
-          exit $FAILED
+          exit $FAILED 
