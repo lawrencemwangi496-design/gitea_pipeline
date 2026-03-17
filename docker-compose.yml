@@ -39,6 +39,24 @@ services:
       - GITEA__server__DOMAIN=gitea.devsecorpion.sbs
     ports:
       - "127.0.0.1:3000:3000"
+  
+  runner:
+    image: gitea/act_runner:latest
+    container_name: gitea_runner
+    depends_on:
+      - gitea
+    networks:
+      - gitea_net
+    environment:
+      - GITEA_INSTANCE_URL=https://gitea.devsecorpion.sbs
+      - GITEA_RUNNER_REGISTRATION_TOKEN=${GITEA_RUNNER_TOKEN}
+      - GITEA_RUNNER_NAME=global-runner
+      - GITEA_RUNNER_LABELS=ubuntu-latest:docker://gitea/runner-images:ubuntu-latest
+    volumes:
+     - ./runner-data:/data
+     - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
 
 networks:
   gitea_net:
