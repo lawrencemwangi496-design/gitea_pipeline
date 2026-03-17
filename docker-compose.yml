@@ -56,6 +56,38 @@ services:
      - ./runner-data:/data
      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
+  runner_2:
+    image: gitea/act_runner:latest
+    container_name: gitea_runner2
+    depends_on:
+      - gitea
+    networks:
+      - gitea_net
+    environment:
+      - GITEA_INSTANCE_URL=https://gitea.devsecorpion.sbs
+      - GITEA_RUNNER_REGISTRATION_TOKEN=${GITEA_RUNNER_TOKEN}
+      - GITEA_RUNNER_NAME=global-runner2
+      - GITEA_RUNNER_LABELS=ubuntu-latest:docker://gitea/runner-images:ubuntu-latest
+    volumes:
+     - ./runner-data-2:/data
+     - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+  runner_3:
+    image: gitea/act_runner:latest
+    container_name: gitea_runner3
+    depends_on:
+      - gitea
+    networks:
+      - gitea_net
+    environment:
+      - GITEA_INSTANCE_URL=https://gitea.devsecorpion.sbs
+      - GITEA_RUNNER_REGISTRATION_TOKEN=${GITEA_RUNNER_TOKEN}
+      - GITEA_RUNNER_NAME=global-runner3
+      - GITEA_RUNNER_LABELS=ubuntu-latest:docker://gitea/runner-images:ubuntu-latest
+    volumes:
+     - ./runner-data-3:/data
+     - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
 
 
 networks:
