@@ -1,23 +1,35 @@
 ---
-name: securty check
+# Security Scanning Pipeline for Infrastructure Code
+# 
+# Purpose: Automate security validation of Docker Compose configurations
+# and container images before deployment to production.
+#
+# This workflow implements DevSecOps practices by scanning infrastructure
+# code with the same rigor as application code.
+
+name: Infrastructure Security Scan
+
 on:
   pull_request:
-    branches: [main]
+    branches: [main]          # Scan every PR before merge
   schedule:
-    - cron: '0 7 * * 1'
-  workflow_dispatch:
+    - cron: '0 7 * * 1'       # Weekly scan every Monday at 7am UTC
+  workflow_dispatch:          # Manual trigger with scope selection
     inputs:
       security:
-        description: "run security check"
+        description: "Security scan scope"
         required: true
         default: full_scan
         type: choice
         options:
-          - full_scan
-          - syntax
-          - secret_scan
-          - image_scan
+          - full_scan         # Run all three scans
+          - syntax            # Only compose syntax validation
+          - secret_scan       # Only secret detection
+          - image_scan        # Only container vulnerability scanning
 jobs:
+  # Job 1: Secret Detection
+  # Prevents credentials, tokens, and keys from being committed to the repo.
+  # Uses TruffleHog to scan full git history (fetch-depth: 0) for verified secrets.
   secret_scan:
     runs-on: ubuntu-latest
     if: >
@@ -28,12 +40,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: "0"
-      - name: scan for secret
+          fetch-depth: "0"          # Full history for comprehensive secret detection
+      - name: Scan for secrets
         uses: trufflesecurity/trufflehog@main
         with:
-          extra_args: --only-verified
+          extra_args: --only-verified  # Only flag verified secrets (reduce false positives)
 
+  # Job 2: Compose File Syntax Validation
+  # Ensures Docker Compose configuration is valid before attempting deployment.
+  # Catches YAML errors, missing required fields, and invalid configurations.
   syntax:
     runs-on: ubuntu-latest
     if: >
@@ -43,12 +58,20 @@ jobs:
       github.event.inputs.security == 'full_scan'
     steps:
       - uses: actions/checkout@v4
-      - name: check docker compose syntax
-        run: docker compose config --quiet
+      - name: Validate Docker Compose syntax
+        run: docker compose config --quiet  # Quiet mode: exits 0 if valid, 1 if invalid
 
+  # Job 3: Container Image Vulnerability Scanning
+  # Extracts all container images from docker-compose.yml and scans them
+  # for vulnerabilities using Trivy. Only fails on HIGH/CRITICAL severity.
+  # 
+  # Dependencies: Runs after syntax and secret scan pass.
+  #
+  # Note: Local images (not in registry) may cause scan failures due to
+  # missing layer metadata. Recommended: push to registry before scanning.
   image_scan:
     runs-on: ubuntu-latest
-    needs: [syntax, secret_scan]
+    needs: [syntax, secret_scan]  # Only run if syntax and secrets are clean
     if: >
       github.event_name == 'pull_request' ||
       github.event_name == 'schedule' ||
@@ -56,12 +79,14 @@ jobs:
       github.event.inputs.security == 'full_scan'
     steps:
       - uses: actions/checkout@v4
-      - name: Install yq
+      
+      - name: Install yq (YAML processor)
         run: |
           sudo wget -qO /usr/local/bin/yq \
           https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
-      - name: Install Trivy
+      
+      - name: Install Trivy vulnerability scanner
         run: |
           sudo apt-get install -y wget apt-transport-https gnupg
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
@@ -70,15 +95,18 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/trivy.list
           sudo apt-get update
           sudo apt-get install -y trivy
+      
       - name: Cache Trivy vulnerability database
         uses: actions/cache@v4
         with:
           path: ~/.cache/trivy
           key: trivy-db-${{ github.run_id }}
           restore-keys: trivy-db-
+      
       - name: Extract images from Compose file
         id: images
         run: |
+           # Parse docker-compose.yml, extract unique images, ignore nulls
            IMAGES=$(yq '.services[].image' docker-compose.yml \
            | grep -v 'null' \
            | sort \
@@ -86,6 +114,7 @@ jobs:
            echo "images<<EOF" >> $GITHUB_OUTPUT
            echo "$IMAGES" >> $GITHUB_OUTPUT
            echo "EOF" >> $GITHUB_OUTPUT
+      
       - name: Scan each image with Trivy
         run: |
           FAILED=0
@@ -98,4 +127,4 @@ jobs:
           --cache-dir ~/.cache/trivy \
           "$img" || FAILED=1
           done <<< "${{ steps.images.outputs.images }}"
-          exit $FAILED 
+          exit $FAILED  # Fail workflow if any image has HIGH/CRITICAL vulns 
