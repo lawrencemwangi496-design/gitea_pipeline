@@ -1,5 +1,22 @@
 ---
-name: deploying
+# Deployment Pipeline for Gitea Infrastructure
+# 
+# Purpose: Automatically deploy infrastructure changes to production VPS.
+# Trigger: Push to main branch (after PR merge).
+#
+# Workflow:
+# 1. SSH into production VPS
+# 2. Pull latest compose file from git
+# 3. Pull updated container images
+# 4. Restart the gitea-stack systemd service
+#
+# Security: Uses SSH key stored in GitHub secrets (read-only access)
+# Infrastructure: Deployed to /opt/gitea on production VPS
+#
+# Note: Assumes systemd service 'gitea-stack' manages docker compose lifecycle
+
+name: Deploy to Production
+
 on:
   push:
     branches: [main]
@@ -9,7 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: pull and start service
+      
+      - name: Deploy to VPS
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_IP }}

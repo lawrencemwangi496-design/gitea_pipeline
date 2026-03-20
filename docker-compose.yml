@@ -1,4 +1,13 @@
+# Self-Hosted Gitea DevOps Platform
+# 
+# Production deployment configuration for a complete Git service with CI/CD runners.
+# All services run on a private bridge network for isolation.
+# Data persists in /opt/gitea/ on the host.
+
 services:
+  # PostgreSQL Database
+  # Stores Gitea metadata, users, repositories, and action logs.
+  # Health checks ensure database is ready before Gitea starts.
   postgres:
     image: postgres:15
     container_name: gitea_database
@@ -8,7 +17,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     restart: unless-stopped
     volumes:
-      - /opt/gitea/postgres:/var/lib/postgresql/data
+      - /opt/gitea/postgres:/var/lib/postgresql/data  # Persistent database storage
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}"]
       interval: 10s
@@ -18,28 +27,36 @@ services:
     networks:
       - gitea_net
   
+  # Gitea Git Service
+  # Web UI, Git HTTP/SSH endpoints, API, and Actions management.
+  # Connects to PostgreSQL for state and uses host volumes for repositories.
   gitea:
     image: gitea/gitea:latest
     container_name: gitea
     volumes:
-      - /opt/gitea/data:/data
+      - /opt/gitea/data:/data  # Git repos, config, attachments
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_healthy  # Wait for DB before starting
     networks:
       - gitea_net
     environment:
+      # Database connection configuration
       - GITEA__database__DB_TYPE=postgres
       - GITEA__database__HOST=postgres:5432
       - GITEA__database__NAME=${POSTGRES_DB}
       - GITEA__database__USER=${POSTGRES_USER}
       - GITEA__database__PASSWD=${POSTGRES_PASSWORD}
+      # Public URL (behind reverse proxy)
       - GITEA__server__ROOT_URL=https://gitea.devsecorpion.sbs
       - GITEA__server__DOMAIN=gitea.devsecorpion.sbs
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3000:3000"  # Only localhost, reverse proxy handles external
   
+  # Gitea Actions Runner 1
+  # Executes CI/CD jobs from Gitea repositories.
+  # Mounts Docker socket to run container-based jobs.
   runner:
     image: gitea/act_runner:latest
     container_name: gitea_runner
@@ -53,9 +70,11 @@ services:
       - GITEA_RUNNER_NAME=global-runner
       - GITEA_RUNNER_LABELS=ubuntu-latest:docker://gitea/runner-images:ubuntu-latest
     volumes:
-     - ./runner-data:/data
-     - /var/run/docker.sock:/var/run/docker.sock
+     - ./runner-data:/data                 # Runner state
+     - /var/run/docker.sock:/var/run/docker.sock  # Docker-in-Docker support
     restart: unless-stopped
+  
+  # Gitea Actions Runner 2 (redundancy/parallel execution)
   runner_2:
     image: gitea/act_runner:latest
     container_name: gitea_runner2
@@ -72,6 +91,8 @@ services:
      - ./runner-data-2:/data
      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
+  
+  # Gitea Actions Runner 3 (capacity for concurrent jobs)
   runner_3:
     image: gitea/act_runner:latest
     container_name: gitea_runner3
@@ -91,5 +112,7 @@ services:
 
 
 networks:
+  # Isolated bridge network for service communication
+  # Prevents external access to internal services
   gitea_net:
     driver: bridge
